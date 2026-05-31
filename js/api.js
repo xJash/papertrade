@@ -1,141 +1,98 @@
 /**
  * js/api.js
  *
- * All Yahoo Finance data fetching.
+ * All market data fetching.
+ * Talks to the local Python server (server.py) which proxies Yahoo Finance.
  *
- * Yahoo Finance doesn't have an official public API, so we route
- * requests through allorigins.win (a free CORS proxy) to avoid
- * CORS errors when running locally.
+ * ── How it works ─────────────────────────────────────────────
+ *  Browser → GET /api/quotes?symbols=AAPL,MSFT   → server.py → Yahoo Finance
+ *  Browser → GET /api/history?symbol=AAPL&period=1d&interval=5m → server.py → Yahoo
  *
- * ┌──────────────────────────────────────────────────────────┐
- * │  WANT TO SWAP THE DATA SOURCE?                           │
- * │                                                          │
- * │  Replace fetchQuoteBatch() and fetchHistory() with calls │
- * │  to any API you prefer, e.g.:                           │
- * │    • Alpha Vantage  (free tier, needs API key)           │
- * │    • Polygon.io     (free tier, needs API key)           │
- * │    • Finnhub        (free tier, needs API key)           │
- * │    • A local Python server (see README.md)               │
- * └──────────────────────────────────────────────────────────┘
+ * ── Changing the data source ─────────────────────────────────
+ *  Everything Yahoo-specific lives in server.py.
+ *  This file only cares about the JSON shape those endpoints return.
+ *  See README.md for details on swapping to Alpha Vantage, Polygon, etc.
  */
 
-const CORS_PROXY = 'https://api.allorigins.win/get?url=';
+const API_BASE = 'http://localhost:5500';
 
 /**
- * Fetch live quotes for up to 10 symbols at once.
- * Returns an object keyed by symbol: { price, change, changePct, prevClose, volume, marketCap }
+ * Timeframe configs for the chart buttons.
+ * period/interval must be valid yfinance (Yahoo Finance) values.
+ *
+ * Valid periods:   1d 5d 1mo 3mo 6mo 1y 2y 5y 10y ytd max
+ * Valid intervals: 1m 2m 5m 15m 30m 60m 90m 1h 1d 5d 1wk 1mo 3mo
+ * (intraday intervals only available for periods ≤ 60 days)
+ */
+const TIMEFRAMES = [
+  { label: '24h',  period: '1d',   interval: '5m'  },
+  { label: '2d',   period: '2d',   interval: '15m' },
+  { label: '3d',   period: '3d',   interval: '30m' },
+  { label: '5d',   period: '5d',   interval: '1h'  },
+  { label: '7d',   period: '7d',   interval: '1h'  },
+  { label: '14d',  period: '14d',  interval: '1d'  },
+  { label: '28d',  period: '1mo',  interval: '1d'  },
+  { label: '3mo',  period: '3mo',  interval: '1d'  },
+  { label: '6mo',  period: '6mo',  interval: '1d'  },
+];
+
+/**
+ * Fetch live quotes for a batch of symbols (up to ~50 at once is fine).
+ * Returns { [sym]: { price, change, changePct, prevClose, volume, marketCap } }
  *
  * @param {string[]} symbols
  * @returns {Promise<Object>}
  */
 async function fetchQuoteBatch(symbols) {
   if (!symbols.length) return {};
-
-  const fields = [
-    'regularMarketPrice',
-    'regularMarketChange',
-    'regularMarketChangePercent',
-    'regularMarketPreviousClose',
-    'regularMarketVolume',
-    'marketCap',
-  ].join(',');
-
-  const yahooUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols.join(',')}&fields=${fields}`;
-
   try {
-    const resp = await fetch(CORS_PROXY + encodeURIComponent(yahooUrl));
-    const json = await resp.json();
-    const data = JSON.parse(json.contents);
-    const results = {};
-
-    (data?.quoteResponse?.result || []).forEach(q => {
-      results[q.symbol] = {
-        price:     q.regularMarketPrice            ?? 0,
-        change:    q.regularMarketChange           ?? 0,
-        changePct: q.regularMarketChangePercent    ?? 0,
-        prevClose: q.regularMarketPreviousClose    ?? 0,
-        volume:    q.regularMarketVolume           ?? 0,
-        marketCap: q.marketCap                     ?? 0,
-      };
-    });
-
-    return results;
+    const url  = `${API_BASE}/api/quotes?symbols=${symbols.join(',')}`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return await resp.json();
   } catch (err) {
-    console.warn('[api] fetchQuoteBatch failed:', err);
+    console.warn('[api] fetchQuoteBatch failed:', err.message);
     return {};
   }
 }
 
 /**
- * Fetch all live quotes for the full STOCK_LIST in parallel batches of 10.
- * Populates the global `liveData` map.
+ * Fetch quotes for the entire STOCK_LIST in parallel batches of 50.
+ * Returns the merged result map.
  *
  * @returns {Promise<Object>}
  */
 async function fetchAllQuotes() {
   const symbols = STOCK_LIST.map(s => s.sym);
-  const batches  = [];
-  for (let i = 0; i < symbols.length; i += 10) {
-    batches.push(symbols.slice(i, i + 10));
+  const BATCH   = 50;
+  const batches = [];
+  for (let i = 0; i < symbols.length; i += BATCH) {
+    batches.push(symbols.slice(i, i + BATCH));
   }
 
+  // Fire all batches concurrently
   const results = await Promise.all(batches.map(b => fetchQuoteBatch(b)));
   return Object.assign({}, ...results);
 }
 
 /**
- * Timeframe configurations for the chart.
- * label     — shown on the button
- * range     — Yahoo Finance range param  (1d, 5d, 1mo, 3mo, 6mo, 1y…)
- * interval  — Yahoo Finance interval     (1m, 5m, 15m, 30m, 1h, 1d…)
- */
-const TIMEFRAMES = [
-  { label: '24h',  range: '1d',   interval: '5m'  },
-  { label: '2d',   range: '2d',   interval: '15m' },
-  { label: '3d',   range: '3d',   interval: '30m' },
-  { label: '5d',   range: '5d',   interval: '1h'  },
-  { label: '7d',   range: '7d',   interval: '1h'  },
-  { label: '14d',  range: '14d',  interval: '1d'  },
-  { label: '28d',  range: '1mo',  interval: '1d'  },
-  { label: '3mo',  range: '3mo',  interval: '1d'  },
-  { label: '6mo',  range: '6mo',  interval: '1d'  },
-];
-
-/**
- * Fetch OHLC history for a single symbol.
- * Returns an array of { t: timestamp_ms, p: close_price } objects,
- * or null on failure.
+ * Fetch OHLC close history for one symbol.
+ * Returns [{ t: ms_timestamp, p: close_price }, ...] or null on failure.
  *
  * @param {string} symbol
- * @param {string} range    — e.g. '1d', '3mo'
- * @param {string} interval — e.g. '5m', '1d'
+ * @param {string} period    — yfinance period string, e.g. '1d'
+ * @param {string} interval  — yfinance interval string, e.g. '5m'
  * @returns {Promise<Array|null>}
  */
-async function fetchHistory(symbol, range, interval) {
-  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=${interval}`;
-
+async function fetchHistory(symbol, period, interval) {
   try {
-    const resp = await fetch(CORS_PROXY + encodeURIComponent(yahooUrl));
+    const url  = `${API_BASE}/api/history?symbol=${symbol}&period=${period}&interval=${interval}`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const json = await resp.json();
-    const data = JSON.parse(json.contents);
-    const result = data?.chart?.result?.[0];
-
-    if (!result) return null;
-
-    const timestamps = result.timestamp;
-    const closes     = result.indicators?.quote?.[0]?.close;
-
-    if (!timestamps || !closes) return null;
-
-    const points = [];
-    for (let i = 0; i < timestamps.length; i++) {
-      if (closes[i] != null) {
-        points.push({ t: timestamps[i] * 1000, p: closes[i] });
-      }
-    }
-    return points;
+    return json.points || null;
   } catch (err) {
-    console.warn(`[api] fetchHistory(${symbol}) failed:`, err);
+    console.warn(`[api] fetchHistory(${symbol}) failed:`, err.message);
     return null;
   }
 }

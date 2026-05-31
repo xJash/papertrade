@@ -27,7 +27,7 @@ async function openModal(sym) {
   // ── Build timeframe buttons ──
   const tfButtons = TIMEFRAMES.map((tf, i) =>
     `<button class="tf-btn${i === 0 ? ' active' : ''}"
-       onclick="loadChart('${sym}','${tf.range}','${tf.interval}',this)">${tf.label}</button>`
+       onclick="loadChart('${sym}','${tf.period}','${tf.interval}',this)">${tf.label}</button>`
   ).join('');
 
   // ── Owned badge ──
@@ -86,7 +86,7 @@ async function openModal(sym) {
   document.getElementById('stockModal').classList.add('open');
 
   // Load chart with default timeframe
-  loadChart(sym, TIMEFRAMES[0].range, TIMEFRAMES[0].interval, null);
+  loadChart(sym, TIMEFRAMES[0].period, TIMEFRAMES[0].interval, null);
 }
 
 /**

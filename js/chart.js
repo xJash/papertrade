@@ -16,7 +16,7 @@ let chartInstance = null;
  * @param {string} interval   — Yahoo interval param, e.g. '5m'
  * @param {HTMLElement} btnEl — the timeframe button that was clicked (for active state)
  */
-async function loadChart(sym, range, interval, btnEl) {
+async function loadChart(sym, period, interval, btnEl) {
   // Update active button
   if (btnEl) {
     document.querySelectorAll('#tfRow .tf-btn').forEach(b => b.classList.remove('active'));
@@ -33,12 +33,12 @@ async function loadChart(sym, range, interval, btnEl) {
   }
 
   // Check cache
-  const cacheKey = `${sym}_${range}`;
+  const cacheKey = `${sym}_${period}`;
   let   points   = chartDataCache[cacheKey];
 
   if (!points) {
     // Fetch and cache
-    points = await fetchHistory(sym, range, interval);
+    points = await fetchHistory(sym, period, interval);
     if (points) chartDataCache[cacheKey] = points;
   }
 
@@ -59,7 +59,7 @@ async function loadChart(sym, range, interval, btnEl) {
   // Format x-axis labels based on timeframe
   const labels = points.map(pt => {
     const d = new Date(pt.t);
-    if (['1d', '2d', '3d'].includes(range)) {
+    if (['1d', '2d', '3d'].includes(period)) {
       return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
     }
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
