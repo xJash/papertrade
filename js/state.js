@@ -35,6 +35,7 @@ const STARTING_CASH   = 10_000;
 let liveData     = {};   // { [sym]: { price, change, changePct, … } }
 let modalSymbol  = null; // currently open stock in the modal
 let currentSector = 'All';
+let currentSort   = 'default';   // 'default' | 'price-hi' | 'price-lo' | 'alpha' | 'gain' | 'loss'
 let chartDataCache = {}; // { [`${sym}_${range}`]: [{t, p}] }
 
 // ── Portfolio state ──────────────────────────────────────────

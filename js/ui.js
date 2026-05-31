@@ -48,6 +48,7 @@ function renderTicker() {
 
 function renderMarket() {
   buildSectorFilters();
+  buildSortBar();
   document.getElementById('stockCount').textContent = STOCK_LIST.length + ' stocks';
   filterStocks();
 }
@@ -56,14 +57,18 @@ function buildSectorFilters() {
   const container = document.getElementById('sectorFilters');
   if (container.children.length > 0) return; // already built
 
-  const sectors = ['All', ...new Set(STOCK_LIST.map(s => s.sector))];
+  // Sort sectors alphabetically but keep 'All' first
+  const sectors = ['All', ...new Set(STOCK_LIST.map(s => s.sector))].sort((a, b) =>
+    a === 'All' ? -1 : b === 'All' ? 1 : a.localeCompare(b)
+  );
+
   sectors.forEach(sec => {
     const btn = document.createElement('button');
     btn.className   = 'filter-btn' + (sec === 'All' ? ' active' : '');
     btn.textContent = sec;
     btn.onclick     = () => {
       currentSector = sec;
-      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('#sectorFilters .filter-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       filterStocks();
     };
@@ -71,14 +76,102 @@ function buildSectorFilters() {
   });
 }
 
+const SORT_OPTIONS = [
+  { value: 'default',  label: 'Default',         title: 'Market cap order (largest first)' },
+  { value: 'alpha',    label: 'A → Z',            title: 'Alphabetical by ticker' },
+  { value: 'price-hi', label: 'Price ↑',          title: 'Highest price first' },
+  { value: 'price-lo', label: 'Price ↓',          title: 'Lowest price first' },
+  { value: 'gain',     label: '▲ Top Gainers',    title: 'Biggest % gain today' },
+  { value: 'loss',     label: '▼ Top Losers',     title: 'Biggest % drop today' },
+];
+
+function buildSortBar() {
+  const bar = document.getElementById('sortBar');
+  if (bar.children.length > 0) return; // already built
+
+  const label = document.createElement('span');
+  label.className   = 'sort-bar-label';
+  label.textContent = 'Sort:';
+  bar.appendChild(label);
+
+  SORT_OPTIONS.forEach(opt => {
+    const btn = document.createElement('button');
+    btn.className   = 'sort-btn' + (opt.value === currentSort ? ' active' : '');
+    btn.textContent = opt.label;
+    btn.title       = opt.title;
+    btn.dataset.sort = opt.value;
+    btn.onclick = () => {
+      currentSort = opt.value;
+      document.querySelectorAll('#sortBar .sort-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      filterStocks();
+    };
+    bar.appendChild(btn);
+  });
+}
+
+function applySortToList(list) {
+  switch (currentSort) {
+    case 'alpha':
+      return [...list].sort((a, b) => a.sym.localeCompare(b.sym));
+
+    case 'price-hi':
+      return [...list].sort((a, b) => {
+        const pa = liveData[a.sym]?.price ?? -1;
+        const pb = liveData[b.sym]?.price ?? -1;
+        return pb - pa;
+      });
+
+    case 'price-lo':
+      return [...list].sort((a, b) => {
+        const pa = liveData[a.sym]?.price ?? Infinity;
+        const pb = liveData[b.sym]?.price ?? Infinity;
+        // Push stocks with no price data to the bottom
+        if (pa === Infinity && pb === Infinity) return 0;
+        if (pa === Infinity) return 1;
+        if (pb === Infinity) return -1;
+        return pa - pb;
+      });
+
+    case 'gain':
+      return [...list].sort((a, b) => {
+        const ca = liveData[a.sym]?.changePct ?? -Infinity;
+        const cb = liveData[b.sym]?.changePct ?? -Infinity;
+        return cb - ca;   // highest gain first
+      });
+
+    case 'loss':
+      return [...list].sort((a, b) => {
+        const ca = liveData[a.sym]?.changePct ?? Infinity;
+        const cb = liveData[b.sym]?.changePct ?? Infinity;
+        return ca - cb;   // biggest drop first
+      });
+
+    default: // 'default' — preserve STOCK_LIST order (market cap desc from server)
+      return list;
+  }
+}
+
 function filterStocks() {
   const q    = document.getElementById('searchInput').value.toLowerCase();
   let   list = STOCK_LIST;
 
+  // 1. Sector filter
   if (currentSector !== 'All') list = list.filter(s => s.sector === currentSector);
-  if (q)                       list = list.filter(s =>
+
+  // 2. Search filter
+  if (q) list = list.filter(s =>
     s.sym.toLowerCase().includes(q) || s.name.toLowerCase().includes(q)
   );
+
+  // 3. Sort
+  list = applySortToList(list);
+
+  // 4. Update count badge
+  document.getElementById('stockCount').textContent =
+    list.length === STOCK_LIST.length
+      ? `${STOCK_LIST.length.toLocaleString()} stocks`
+      : `${list.length.toLocaleString()} of ${STOCK_LIST.length.toLocaleString()}`;
 
   const grid = document.getElementById('stockGrid');
 
@@ -90,12 +183,14 @@ function filterStocks() {
   grid.innerHTML = list.map(s => {
     const d   = liveData[s.sym];
     const cls = d && d.change >= 0 ? 'up' : 'dn';
+    // Flag stocks with no price data so the card looks neutral
+    const hasPrice = d && d.price > 0;
     return `
-      <div class="stock-card" onclick="openModal('${s.sym}')">
+      <div class="stock-card" data-sym="${s.sym}" onclick="openModal('${s.sym}')">
         <div class="sym">${s.sym}</div>
         <div class="name">${s.name}</div>
-        <div class="price ${cls}">${d ? fmt(d.price) : '—'}</div>
-        <div class="chg  ${cls}">${d ? fmtPct(d.changePct) : ''}</div>
+        <div class="price ${hasPrice ? cls : ''}">${hasPrice ? fmt(d.price) : '—'}</div>
+        <div class="chg  ${hasPrice ? cls : ''}">${hasPrice ? fmtPct(d.changePct) : ''}</div>
         <canvas class="mini-spark" id="spark-${s.sym}" width="160" height="28"></canvas>
       </div>`;
   }).join('');
