@@ -1,28 +1,22 @@
 /**
  * js/api.js
  *
- * All market data fetching.
- * Talks to the local Python server (server.py) which proxies Yahoo Finance.
+ * All market data fetching — talks to local server.py (localhost:5500).
  *
- * ── How it works ─────────────────────────────────────────────
- *  Browser → GET /api/quotes?symbols=AAPL,MSFT   → server.py → Yahoo Finance
- *  Browser → GET /api/history?symbol=AAPL&period=1d&interval=5m → server.py → Yahoo
+ * Endpoints:
+ *   GET /api/stocks                              → full dynamic stock list
+ *   GET /api/quotes?symbols=AAPL,MSFT,...        → live prices
+ *   GET /api/history?symbol=AAPL&period=1d&interval=5m → OHLC history
  *
- * ── Changing the data source ─────────────────────────────────
- *  Everything Yahoo-specific lives in server.py.
- *  This file only cares about the JSON shape those endpoints return.
- *  See README.md for details on swapping to Alpha Vantage, Polygon, etc.
+ * To change the data source, edit server.py — this file only handles
+ * HTTP calls and doesn't care where server.py gets its data.
  */
 
 const API_BASE = 'http://localhost:5500';
 
 /**
- * Timeframe configs for the chart buttons.
- * period/interval must be valid yfinance (Yahoo Finance) values.
- *
- * Valid periods:   1d 5d 1mo 3mo 6mo 1y 2y 5y 10y ytd max
- * Valid intervals: 1m 2m 5m 15m 30m 60m 90m 1h 1d 5d 1wk 1mo 3mo
- * (intraday intervals only available for periods ≤ 60 days)
+ * Timeframe configs for the chart modal buttons.
+ * period/interval must be valid yfinance values (see server.py docstring).
  */
 const TIMEFRAMES = [
   { label: '24h',  period: '1d',   interval: '5m'  },
@@ -37,17 +31,29 @@ const TIMEFRAMES = [
 ];
 
 /**
- * Fetch live quotes for a batch of symbols (up to ~50 at once is fine).
+ * Fetch the full stock list from the server.
+ * Returns [{ sym, name, sector }, ...]
+ * The server builds this dynamically from NASDAQ/NYSE data at startup.
+ */
+async function fetchStockList() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/stocks`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return await resp.json();
+  } catch (err) {
+    console.error('[api] fetchStockList failed:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Fetch live quotes for a batch of symbols.
  * Returns { [sym]: { price, change, changePct, prevClose, volume, marketCap } }
- *
- * @param {string[]} symbols
- * @returns {Promise<Object>}
  */
 async function fetchQuoteBatch(symbols) {
   if (!symbols.length) return {};
   try {
-    const url  = `${API_BASE}/api/quotes?symbols=${symbols.join(',')}`;
-    const resp = await fetch(url);
+    const resp = await fetch(`${API_BASE}/api/quotes?symbols=${symbols.join(',')}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     return await resp.json();
   } catch (err) {
@@ -57,10 +63,7 @@ async function fetchQuoteBatch(symbols) {
 }
 
 /**
- * Fetch quotes for the entire STOCK_LIST in parallel batches of 50.
- * Returns the merged result map.
- *
- * @returns {Promise<Object>}
+ * Fetch live quotes for the entire STOCK_LIST in parallel batches of 50.
  */
 async function fetchAllQuotes() {
   const symbols = STOCK_LIST.map(s => s.sym);
@@ -69,8 +72,6 @@ async function fetchAllQuotes() {
   for (let i = 0; i < symbols.length; i += BATCH) {
     batches.push(symbols.slice(i, i + BATCH));
   }
-
-  // Fire all batches concurrently
   const results = await Promise.all(batches.map(b => fetchQuoteBatch(b)));
   return Object.assign({}, ...results);
 }
@@ -78,11 +79,6 @@ async function fetchAllQuotes() {
 /**
  * Fetch OHLC close history for one symbol.
  * Returns [{ t: ms_timestamp, p: close_price }, ...] or null on failure.
- *
- * @param {string} symbol
- * @param {string} period    — yfinance period string, e.g. '1d'
- * @param {string} interval  — yfinance interval string, e.g. '5m'
- * @returns {Promise<Array|null>}
  */
 async function fetchHistory(symbol, period, interval) {
   try {

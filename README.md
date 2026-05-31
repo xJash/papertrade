@@ -1,7 +1,7 @@
 # PaperTrade — Stock Simulator
 
-A browser-based paper trading simulator with live USA stock prices (~440 tickers),
-full portfolio tracking, and persistent localStorage saves.
+A browser-based paper trading simulator with **live USA stock prices** and a
+**fully dynamic stock list** (~3,000+ tickers, refreshed on every server start).
 
 ---
 
@@ -9,115 +9,111 @@ full portfolio tracking, and persistent localStorage saves.
 
 ### 1. Install Python dependencies
 ```bash
-pip install yfinance flask
+pip install yfinance requests
 ```
-> Python 3.9+ required. `yfinance` handles all Yahoo Finance auth automatically.
+Python 3.9+ required.
 
-### 2. Start the local server
+### 2. Start the server
 ```bash
 python server.py
 ```
-You'll see:
+On first run you'll see it fetching the stock list:
 ```
-  ╔══════════════════════════════════════════╗
-  ║        PaperTrade local server           ║
-  ║  http://localhost:5500                   ║
-  ╚══════════════════════════════════════════╝
+[stocks] Fetching dynamic stock list…
+  fetched 4,165 entries from nasdaq_full_tickers.json
+  fetched 2,706 entries from nyse_full_tickers.json
+  fetched 503 S&P 500 sector mappings
+[stocks] Final list: 3,136 stocks across 12 sectors
+
+  ╔═══════════════════════════════════════════════════╗
+  ║  3,136 stocks loaded — http://localhost:5500      ║
+  ╚═══════════════════════════════════════════════════╝
 ```
 
 ### 3. Open the app
-Visit **http://localhost:5500** in your browser.
+**http://localhost:5500**
 
-> ⚠️  Always use `python server.py` — do NOT open index.html as a file:// URL.
-> The browser talks to the Python server for all price data.
+> ⚠️  Always run via `python server.py` — don't open index.html as a file:// URL.
 
 ---
 
 ## Daily use
 ```bash
-python server.py   # start
-# open http://localhost:5500
+python server.py    # start (fetches fresh stock list every time)
 # Ctrl+C to stop
 ```
 
 ---
 
-## Project Structure
-```
-papertrade/
-├── server.py                   ← Python server (Flask + yfinance). Run this.
-├── index.html                  ← App shell
-├── papertrade.code-workspace   ← Open in VS Code
-├── README.md
-├── css/
-│   └── main.css                ← All styles. Design tokens at the top.
-├── data/
-│   └── stocks.js               ← ~440 tickers. Add any Yahoo Finance symbol here.
-└── js/
-    ├── api.js      ← Talks to localhost:5500/api/... (swap server to change data source)
-    ├── state.js    ← Portfolio state, buy/sell logic, localStorage persistence
-    ├── ui.js       ← Market grid, portfolio page, history page, ticker tape
-    ├── chart.js    ← Chart.js price charts + timeframe rendering
-    ├── modal.js    ← Stock detail modal + trade panel
-    └── app.js      ← Boot sequence, auto-refresh every 60s
+## How the stock list works
+
+On every server start, `server.py` fetches fresh data from two GitHub-hosted
+sources (no API key needed):
+
+| Source | What it provides |
+|---|---|
+| `rreichel3/US-Stock-Symbols` (NASDAQ + NYSE JSON) | Symbol, full name, sector, market cap |
+| `datasets/s-and-p-500-companies` (CSV) | More accurate GICS sector labels for S&P 500 members |
+
+Then applies filters:
+- **Market cap > $100M** — removes shells, SPACs, micro-caps
+- **US-listed only** — removes most foreign-only ADRs (S&P 500 ADRs kept)
+- **Clean symbols only** — removes warrants (`W`), rights (`R`), units (`U`)
+- **Deduped** by symbol, sorted by market cap descending
+
+Result: ~3,000–3,200 real, tradeable US stocks.
+
+To change the minimum market cap threshold, edit `server.py`:
+```python
+MIN_MARKET_CAP = 500_000_000   # raise to $500M to get ~1,700 larger companies
 ```
 
 ---
 
-## How to extend
-
-### Add more stocks
-Edit `data/stocks.js`. The `sym` must be a valid Yahoo Finance ticker.
-```js
-{ sym: 'SMCI', name: 'Super Micro Computer', sector: 'Tech' },
+## Project structure
 ```
-Any new sector you add automatically gets a filter button.
+papertrade/
+├── server.py          ← Run this. Fetches stock list + proxies Yahoo Finance.
+├── index.html         ← App shell
+├── README.md
+├── css/main.css       ← All styles. Design tokens at top.
+├── data/stocks.js     ← No longer used (list is dynamic). Can delete.
+└── js/
+    ├── api.js         ← HTTP calls to localhost:5500/api/...
+    ├── state.js       ← Portfolio state, buy/sell, localStorage
+    ├── ui.js          ← Rendering: market grid, portfolio, history
+    ├── chart.js       ← Chart.js price charts
+    ├── modal.js       ← Stock detail modal + trade panel
+    └── app.js         ← Boot: loads stock list, then starts the app
+```
+
+---
+
+## Extending
 
 ### Change starting cash
-In `js/state.js`:
-```js
-const STARTING_CASH = 25_000;
-```
-Reset your existing portfolio from the browser console: `resetState()`
+In `js/state.js`: `const STARTING_CASH = 25_000;`
+Reset via browser console: `resetState()`
 
-### Change refresh interval
-In `js/app.js`:
-```js
-const REFRESH_INTERVAL_MS = 30_000; // every 30 seconds
-```
-
-### Add a new timeframe
-In `js/api.js`, add to the `TIMEFRAMES` array:
+### Add a custom timeframe
+In `js/api.js`, add to `TIMEFRAMES`:
 ```js
 { label: '1y', period: '1y', interval: '1wk' },
 ```
 
+### Change market cap filter
+In `server.py`: `MIN_MARKET_CAP = 1_000_000_000`  (only $1B+ companies)
+
 ### Add price alerts
-In `js/state.js`, add to the state shape:
+In `js/state.js`, add `alerts: []` to the state shape, then check them
+in `refreshPrices()` in `js/app.js` and call `showToast()`.
+
+### Backup your portfolio
+Browser console (F12):
 ```js
-alerts: [{ sym: 'NVDA', condition: 'above', price: 150 }]
+copy(localStorage.getItem('papertrade_v1'))   // copy to clipboard
+// restore:
+localStorage.setItem('papertrade_v1', '<paste>'); location.reload();
+// wipe:
+resetState()
 ```
-Then in `js/app.js` inside `refreshPrices()`, loop through alerts and call `showToast()`.
-
-### Swap to a different data source
-Everything Yahoo-specific is in `server.py` — just replace the `get_quotes()` and
-`get_history()` functions. The JS only cares that the endpoints return:
-- `/api/quotes` → `{ AAPL: { price, change, changePct, prevClose, volume, marketCap }, ... }`
-- `/api/history` → `{ symbol, points: [{t: ms, p: price}, ...] }`
-
----
-
-## Saving / backing up your portfolio
-
-Your portfolio is auto-saved to `localStorage`. To back it up, open the browser
-console (F12) and run:
-```js
-copy(localStorage.getItem('papertrade_v1'))
-```
-Paste somewhere safe. To restore:
-```js
-localStorage.setItem('papertrade_v1', '<paste>')
-location.reload()
-```
-
-To wipe and start fresh, run `resetState()` in the console.
