@@ -105,8 +105,9 @@ body {
 /* ── Nav ────────────────────────────────────────────────────── */
 .nav {
   display:       flex;
-  gap:           2px;
-  padding:       12px 20px;
+  flex-wrap:     wrap;
+  gap:           4px;
+  padding:       10px 20px;
   background:    var(--surface);
   border-bottom: 1px solid var(--border);
 }
@@ -121,9 +122,18 @@ body {
   font-size:     13px;
   font-weight:   500;
   transition:    all 0.15s;
+  white-space:   nowrap;
 }
 .nav-btn:hover  { background: var(--surface3); color: var(--text); }
 .nav-btn.active { background: var(--surface3); color: var(--text); border-color: var(--border2); }
+
+/* Ups button — green tint when active */
+.nav-btn[data-page="ups"]:hover          { color: var(--green); }
+.nav-btn[data-page="ups"].active         { background: var(--green-bg); color: var(--green); border-color: rgba(0,209,122,0.3); }
+
+/* Downs button — red tint when active */
+.nav-btn[data-page="downs"]:hover        { color: var(--red); }
+.nav-btn[data-page="downs"].active       { background: var(--red-bg); color: var(--red); border-color: rgba(255,77,106,0.3); }
 
 /* ── Pages ──────────────────────────────────────────────────── */
 .page         { display: none; padding: 20px; }
