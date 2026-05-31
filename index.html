@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PaperTrade — Stock Simulator</title>
+
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Chart.js (CDN) — swap for a local copy if you want offline support -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+
+  <!-- ── Ticker tape ─────────────────────────────────────────── -->
+  <div class="ticker-tape">
+    <div class="ticker-inner" id="tickerInner">Loading market data…</div>
+  </div>
+
+  <!-- ── Header ─────────────────────────────────────────────── -->
+  <div class="header">
+    <div class="logo">PAPER<span>TRADE</span></div>
+    <div class="header-right">
+      <div class="live-label"><span class="loading-pulse"></span>Live prices</div>
+      <div class="cash-pill" id="cashDisplay">$10,000.00</div>
+    </div>
+  </div>
+
+  <!-- ── Nav ────────────────────────────────────────────────── -->
+  <nav class="nav">
+    <button class="nav-btn active" data-page="market"   onclick="showPage('market',   this)">Market</button>
+    <button class="nav-btn"        data-page="portfolio" onclick="showPage('portfolio', this)">Portfolio</button>
+    <button class="nav-btn"        data-page="history"  onclick="showPage('history',  this)">History</button>
+  </nav>
+
+  <!-- ── Pages ──────────────────────────────────────────────── -->
+
+  <!-- MARKET -->
+  <section id="page-market" class="page active">
+    <div class="page-header">
+      <h1 class="page-title">Market</h1>
+      <span class="badge" id="stockCount">Loading…</span>
+    </div>
+    <div class="search-bar">
+      <input type="text" id="searchInput" placeholder="Search ticker or company…" oninput="filterStocks()">
+    </div>
+    <div class="filter-row" id="sectorFilters"></div>
+    <div class="stock-grid" id="stockGrid">
+      <div class="empty-state">Fetching live market data…</div>
+    </div>
+  </section>
+
+  <!-- PORTFOLIO -->
+  <section id="page-portfolio" class="page">
+    <div class="page-header">
+      <h1 class="page-title">My Portfolio</h1>
+      <button class="filter-btn" onclick="refreshPrices()">↻ Refresh prices</button>
+    </div>
+    <div class="portfolio-summary" id="portfolioSummary"></div>
+    <div class="holdings-list" id="holdingsList">
+      <h3>Holdings</h3>
+      <div class="empty-state">No positions yet — buy something in Market!</div>
+    </div>
+  </section>
+
+  <!-- HISTORY -->
+  <section id="page-history" class="page">
+    <div class="page-header">
+      <h1 class="page-title">Trade History</h1>
+      <span class="badge" id="txCount">0 trades</span>
+    </div>
+    <div class="tx-list" id="txList">
+      <h3>All Transactions</h3>
+      <div class="empty-state">No trades yet.</div>
+    </div>
+  </section>
+
+  <!-- ── Stock detail modal ──────────────────────────────────── -->
+  <div class="modal-overlay" id="stockModal" onclick="handleModalClick(event)">
+    <div class="modal" id="modalContent"></div>
+  </div>
+
+  <!-- ── Toast notification ─────────────────────────────────── -->
+  <div class="toast" id="toast"></div>
+
+  <!-- Scripts (order matters) -->
+  <script src="data/stocks.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/chart.js"></script>
+  <script src="js/modal.js"></script>
+  <script src="js/app.js"></script>
+
+</body>
+</html>
