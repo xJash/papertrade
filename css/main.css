@@ -430,3 +430,150 @@ body {
   white-space:   nowrap;
 }
 .toast.show { opacity: 1; }
+
+/* ── Movers (Ups / Downs) ────────────────────────────────────────────────────── */
+
+.movers-period-row {
+  display:     flex;
+  gap:         6px;
+  flex-wrap:   wrap;
+  margin-bottom: 10px;
+}
+
+.movers-limit-wrap {
+  display:     flex;
+  align-items: center;
+  gap:         8px;
+  margin-bottom: 12px;
+}
+
+.movers-limit-label {
+  font-size:   12px;
+  color:       var(--text2);
+}
+
+.movers-limit-select {
+  background:    var(--surface2);
+  border:        1px solid var(--border2);
+  border-radius: 6px;
+  color:         var(--text);
+  font-family:   var(--font-mono);
+  font-size:     13px;
+  padding:       5px 10px;
+  cursor:        pointer;
+  outline:       none;
+}
+.movers-limit-select:focus { border-color: var(--blue); }
+
+.movers-refresh { margin-bottom: 12px; }
+
+/* Loading state */
+.movers-loading {
+  display:     flex;
+  align-items: center;
+  padding:     32px 20px;
+  font-family: var(--font-mono);
+  font-size:   13px;
+  color:       var(--text2);
+  flex-wrap:   wrap;
+  gap:         8px;
+}
+.movers-loading-sub {
+  width:       100%;
+  font-size:   11px;
+  color:       var(--text3);
+  margin-top:  6px;
+  line-height: 1.6;
+}
+
+/* Column header row */
+.movers-header-row {
+  display:       grid;
+  grid-template-columns: 36px 1fr 110px 90px 100px 80px;
+  padding:       8px 16px;
+  font-size:     10px;
+  font-family:   var(--font-mono);
+  color:         var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border);
+  background:    var(--surface2);
+  border-radius: 10px 10px 0 0;
+}
+
+/* Individual mover row */
+.mover-row {
+  display:       grid;
+  grid-template-columns: 36px 1fr 110px 90px 100px 80px;
+  align-items:   center;
+  padding:       11px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor:        pointer;
+  transition:    background 0.12s;
+  background:    var(--surface);
+  position:      relative;
+  overflow:      hidden;
+}
+.mover-row:last-child  { border-bottom: none; border-radius: 0 0 10px 10px; }
+.mover-row:hover       { background: var(--surface2); }
+
+.mover-rank {
+  font-family: var(--font-mono);
+  font-size:   13px;
+  font-weight: 600;
+  text-align:  center;
+}
+
+.mover-info  { min-width: 0; position: relative; }
+.mover-sym   { font-family: var(--font-mono); font-size: 14px; font-weight: 600; }
+.mover-name  { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+
+/* Background bar showing relative magnitude */
+.mover-bar-wrap {
+  position: absolute;
+  bottom:   0;
+  left:     0;
+  right:    0;
+  height:   2px;
+}
+.mover-bar {
+  height:        100%;
+  border-radius: 1px;
+  transition:    width 0.4s ease;
+}
+
+.mover-sector {
+  font-size:  11px;
+  color:      var(--text3);
+  white-space: nowrap;
+  overflow:   hidden;
+  text-overflow: ellipsis;
+}
+
+.mover-price {
+  font-family: var(--font-mono);
+  font-size:   13px;
+  text-align:  right;
+}
+
+.mover-pct {
+  font-family: var(--font-mono);
+  font-size:   14px;
+  font-weight: 600;
+  text-align:  right;
+}
+
+.mover-abs {
+  font-family: var(--font-mono);
+  font-size:   11px;
+  text-align:  right;
+  color:       var(--text2);
+}
+
+/* Wrap the whole table in a card */
+.movers-list {
+  background:    var(--surface);
+  border:        1px solid var(--border);
+  border-radius: 10px;
+  overflow:      hidden;
+}

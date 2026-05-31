@@ -16,6 +16,8 @@ function showPage(name, btnEl) {
   // Lazy render on tab switch
   if (name === 'portfolio') renderPortfolio();
   if (name === 'history')   renderHistory();
+  if (name === 'ups')       onMoverPageShow('ups');
+  if (name === 'downs')     onMoverPageShow('downs');
 }
 
 // ── Cash display ─────────────────────────────────────────────

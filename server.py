@@ -53,7 +53,10 @@ PORT             = 5500
 MIN_MARKET_CAP   = 100_000_000     # $100M — filters out shells and micro-caps
 QUOTE_TTL        = 60              # seconds to cache live quotes
 HISTORY_TTL      = 300             # seconds to cache history data
-BATCH_SIZE       = 50              # symbols per yfinance batch
+BATCH_SIZE       = 100             # symbols per yfinance download batch
+BATCH_DELAY      = 1.5            # seconds between batches to avoid rate limits
+CACHE_FILE       = 'stock_list_cache.json'
+CACHE_MAX_AGE    = 86_400          # seconds — refresh from network after 24 hours
 
 HEADERS = {
     'User-Agent': (
@@ -153,22 +156,18 @@ def fetch_sp500_sectors() -> dict[str, str]:
         return {}
 
 
-def build_stock_list() -> list[dict]:
-    """
-    Merge NASDAQ/NYSE tickers with S&P 500 sector data.
-    Apply filters and return a clean, deduped list sorted by market cap.
-    """
+def _build_from_network() -> list[dict]:
+    """Fetch fresh stock list from GitHub sources and return the filtered list."""
     print("\n[stocks] Fetching dynamic stock list…")
     raw      = fetch_nasdaq_nyse()
     sp500map = fetch_sp500_sectors()
 
-    seen    = set()
-    stocks  = []
+    seen   = set()
+    stocks = []
 
     for entry in raw:
         sym  = (entry.get('symbol') or '').strip().upper().replace('.', '-')
         name = (entry.get('name')   or '').strip()
-        # Clean up common name suffixes like "Common Stock", "Inc. Common Stock", etc.
         name = re.sub(r'\s+(Common Stock|Class [A-Z].*|Ordinary Shares.*)$', '', name, flags=re.I).strip()
 
         if not sym or not name:
@@ -178,7 +177,6 @@ def build_stock_list() -> list[dict]:
         if sym in seen:
             continue
 
-        # Market cap filter
         try:
             mktcap = float(entry.get('marketCap') or 0)
         except (ValueError, TypeError):
@@ -186,37 +184,59 @@ def build_stock_list() -> list[dict]:
         if mktcap < MIN_MARKET_CAP:
             continue
 
-        # Sector — prefer S&P 500 GICS label, fall back to NASDAQ/NYSE sector
         if sym in sp500map:
             sector = sp500map[sym]
         else:
             raw_sector = entry.get('sector') or ''
             sector = normalise_sector(raw_sector)
 
-        # Country filter — keep US and blank (most are US)
         country = (entry.get('country') or '').strip()
         if country and country.lower() not in ('united states', 'usa', 'us', ''):
-            # Still include well-known foreign ADRs listed on US exchanges
-            # by checking if they're in S&P 500; otherwise skip non-US
             if sym not in sp500map:
                 continue
 
         seen.add(sym)
-        stocks.append({
-            'sym':       sym,
-            'name':      name,
-            'sector':    sector,
-            'marketCap': mktcap,
-        })
+        stocks.append({'sym': sym, 'name': name, 'sector': sector, 'marketCap': mktcap})
 
-    # Sort by market cap descending (biggest companies first in the UI)
     stocks.sort(key=lambda s: s['marketCap'], reverse=True)
-
-    # Strip marketCap from the final output (front-end doesn't need it for the list)
     result = [{'sym': s['sym'], 'name': s['name'], 'sector': s['sector']} for s in stocks]
+    print(f"[stocks] Built {len(result):,} stocks across "
+          f"{len(set(s['sector'] for s in result))} sectors")
+    return result
 
-    print(f"[stocks] Final list: {len(result):,} stocks across "
-          f"{len(set(s['sector'] for s in result))} sectors\n")
+
+def build_stock_list() -> list[dict]:
+    """
+    Return the stock list, loading from disk cache if it's fresh enough.
+    Cache lives in stock_list_cache.json next to server.py.
+    Force a refresh by deleting that file or passing --refresh on the command line.
+    """
+    force_refresh = '--refresh' in __import__('sys').argv
+
+    # Try loading from cache first
+    if not force_refresh and os.path.exists(CACHE_FILE):
+        age = time.time() - os.path.getmtime(CACHE_FILE)
+        if age < CACHE_MAX_AGE:
+            try:
+                with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+                    cached = json.load(f)
+                if cached:
+                    age_min = int(age // 60)
+                    print(f"\n[stocks] Loaded {len(cached):,} stocks from cache "
+                          f"(age: {age_min}m — next refresh in {int((CACHE_MAX_AGE - age) // 60)}m)")
+                    print("         Run with --refresh to force a fresh download.\n")
+                    return cached
+            except Exception as e:
+                print(f"[stocks] Cache read failed ({e}), fetching fresh…")
+
+    # Fetch from network and save to cache
+    result = _build_from_network()
+    try:
+        with open(CACHE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(result, f)
+        print(f"[stocks] Saved to cache → {CACHE_FILE}\n")
+    except Exception as e:
+        print(f"[stocks] Could not write cache: {e}\n")
     return result
 
 
@@ -229,10 +249,19 @@ STOCK_LIST: list[dict] = []   # populated in main()
 
 _quote_cache:   dict = {}
 _history_cache: dict = {}
+_movers_cache:  dict = {}   # keyed by period
 _cache_lock          = threading.Lock()
 
 
 def get_quotes(symbols: list[str]) -> dict:
+    """
+    Fetch live quotes using yf.download() — one HTTP request per batch of up to
+    BATCH_SIZE symbols, rather than one request per ticker (which triggers rate limits).
+
+    yf.download() with period='1d' interval='1d' returns today's OHLC bar for
+    every symbol in a single call. We pull Close as the current price and
+    compare to the previous bar's Close for change/changePct.
+    """
     now    = time.time()
     result = {}
     need   = []
@@ -248,33 +277,58 @@ def get_quotes(symbols: list[str]) -> dict:
     if not need:
         return result
 
-    # Batch into groups for yfinance
     for i in range(0, len(need), BATCH_SIZE):
         batch = need[i : i + BATCH_SIZE]
+        if i > 0:
+            time.sleep(BATCH_DELAY)   # be polite between batches
+
         try:
-            tickers = yf.Tickers(' '.join(batch))
+            # Download 5 days so we always have a previous-day close even on Mondays
+            df = yf.download(
+                ' '.join(batch),
+                period='5d',
+                interval='1d',
+                progress=False,
+                auto_adjust=True,
+                group_by='ticker',   # multi-ticker: df[sym]['Close']
+            )
+
             for sym in batch:
                 try:
-                    fi = tickers.tickers[sym].fast_info
-                    price     = float(fi.last_price     or 0)
-                    prev      = float(fi.previous_close or 0)
+                    # Multi-ticker download nests columns under the symbol name.
+                    # Single-ticker download is flat — handle both cases.
+                    if len(batch) == 1:
+                        closes = df['Close'].dropna()
+                    else:
+                        closes = df[sym]['Close'].dropna()
+
+                    if len(closes) < 1:
+                        raise ValueError('no data')
+
+                    price = float(closes.iloc[-1])
+                    prev  = float(closes.iloc[-2]) if len(closes) >= 2 else price
+
                     data = {
                         'price':     round(price, 4),
                         'prevClose': round(prev,  4),
                         'change':    round(price - prev, 4),
                         'changePct': round((price - prev) / prev * 100 if prev else 0, 4),
-                        'volume':    int(fi.three_month_average_volume or 0),
-                        'marketCap': int(fi.market_cap or 0),
+                        'volume':    0,   # not critical; omitted to keep requests lean
+                        'marketCap': 0,
                     }
                     result[sym] = data
                     with _cache_lock:
                         _quote_cache[sym] = {'ts': now, 'data': data}
+
                 except Exception as e:
-                    print(f'  [warn] quote {sym}: {e}')
                     result[sym] = {'price': 0, 'change': 0, 'changePct': 0,
                                    'prevClose': 0, 'volume': 0, 'marketCap': 0}
+
         except Exception as e:
             print(f'[quotes] batch error: {e}')
+            for sym in batch:
+                result[sym] = {'price': 0, 'change': 0, 'changePct': 0,
+                               'prevClose': 0, 'volume': 0, 'marketCap': 0}
 
     return result
 
@@ -311,15 +365,113 @@ def get_history(symbol: str, period: str, interval: str) -> list:
         return []
 
 
+
+def get_movers(period: str, limit: int, direction: str) -> list:
+    """
+    Return the top `limit` gainers or losers over `period`.
+    direction: 'up' | 'down'
+
+    Strategy: download daily bars for all stocks in STOCK_LIST over the
+    requested period in large batches, compute pct change from first to
+    last close, sort, and return top N.
+
+    Results are cached per period for HISTORY_TTL seconds since this
+    call is expensive (downloads ~3000 tickers worth of data).
+    """
+    now       = time.time()
+    cache_key = period
+
+    with _cache_lock:
+        entry = _movers_cache.get(cache_key)
+        if entry and (now - entry["ts"]) < HISTORY_TTL:
+            ranked = entry["data"]
+            if direction == "up":
+                return ranked[:limit]
+            else:
+                return list(reversed(ranked))[:limit]
+
+    print(f"[movers] Computing movers for period={period}…")
+
+    # Map UI period labels to yfinance period/interval
+    PERIOD_MAP = {
+        "1d":  ("2d",  "1d"),
+        "5d":  ("5d",  "1d"),
+        "1mo": ("1mo", "1d"),
+        "3mo": ("3mo", "1d"),
+        "6mo": ("6mo", "1d"),
+        "1y":  ("1y",  "1wk"),
+    }
+    yf_period, yf_interval = PERIOD_MAP.get(period, ("5d", "1d"))
+
+    symbols = [s["sym"] for s in STOCK_LIST]
+    results = []
+    BATCH   = 200
+
+    for i in range(0, len(symbols), BATCH):
+        batch = symbols[i : i + BATCH]
+        if i > 0:
+            time.sleep(BATCH_DELAY)
+        try:
+            df = yf.download(
+                " ".join(batch),
+                period=yf_period,
+                interval=yf_interval,
+                progress=False,
+                auto_adjust=True,
+                group_by="ticker",
+            )
+            for sym in batch:
+                try:
+                    closes = (df[sym]["Close"] if len(batch) > 1 else df["Close"]).dropna()
+                    if len(closes) < 2:
+                        continue
+                    first = float(closes.iloc[0])
+                    last  = float(closes.iloc[-1])
+                    if first <= 0:
+                        continue
+                    pct = (last - first) / first * 100
+                    stock_info = next((s for s in STOCK_LIST if s["sym"] == sym), {})
+                    results.append({
+                        "sym":       sym,
+                        "name":      stock_info.get("name", sym),
+                        "sector":    stock_info.get("sector", ""),
+                        "price":     round(last, 4),
+                        "pctChange": round(pct, 4),
+                        "absChange": round(last - first, 4),
+                    })
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"[movers] batch error: {e}")
+
+    # Sort ascending by pctChange (losers first, then gainers at end)
+    results.sort(key=lambda x: x["pctChange"])
+
+    with _cache_lock:
+        _movers_cache[cache_key] = {"ts": now, "data": results}
+
+    if direction == "up":
+        return list(reversed(results))[:limit]
+    else:
+        return results[:limit]
+
 # ── HTTP handler ──────────────────────────────────────────────────────────────
 
 class Handler(SimpleHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
-        if '/api/' in args[0]:
-            print(f'  API  {args[0]}  →  {args[1]}')
+        # args[0] may be an HTTPStatus enum on errors — guard with isinstance
+        first = args[0] if args else ''
+        if isinstance(first, str) and '/api/' in first:
+            print(f'  API  {first}  →  {args[1] if len(args) > 1 else ""}')
 
     def do_GET(self):
+        # Silence the favicon 404 noise
+        if self.path == '/favicon.ico':
+            self.send_response(204)
+            self.end_headers()
+            return
+
         parsed = urlparse(self.path)
         qs     = parse_qs(parsed.query)
 
@@ -350,6 +502,17 @@ class Handler(SimpleHTTPRequestHandler):
             self._json({'symbol': symbol, 'points': points})
             return
 
+        # GET /api/movers?period=5d&limit=20&direction=up
+        if parsed.path == '/api/movers':
+            period    = qs.get('period',    ['5d'])[0].strip()
+            direction = qs.get('direction', ['up'])[0].strip()
+            try:
+                limit = min(int(qs.get('limit', ['25'])[0]), 100)
+            except ValueError:
+                limit = 25
+            self._json(get_movers(period, limit, direction))
+            return
+
         # Static files
         super().do_GET()
 
@@ -372,13 +535,15 @@ if __name__ == '__main__':
     STOCK_LIST = build_stock_list()
 
     server = HTTPServer(('', PORT), Handler)
+    pad = ' ' * max(0, 6 - len(str(len(STOCK_LIST))))
     print(f"""
   ╔══════════════════════════════════════════════════════╗
   ║              PaperTrade local server                 ║
-  ║  {len(STOCK_LIST):,} stocks loaded — http://localhost:{PORT}      ║
+  ║  {len(STOCK_LIST):,} stocks loaded{pad}→  http://localhost:{PORT}  ║
   ╚══════════════════════════════════════════════════════╝
 
-  Stock list refreshes on every server restart.
+  Prices auto-refresh every {QUOTE_TTL}s.  Stock list cached for {CACHE_MAX_AGE//3600}h.
+  Force stock list refresh:  py server.py --refresh
   Press Ctrl+C to stop.
 """)
     try:

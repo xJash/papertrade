@@ -63,17 +63,37 @@ async function fetchQuoteBatch(symbols) {
 }
 
 /**
- * Fetch live quotes for the entire STOCK_LIST in parallel batches of 50.
+ * Fetch live quotes for the entire STOCK_LIST sequentially in batches.
+ * Sequential (not parallel) so we don't fire 60+ requests at once and
+ * trigger Yahoo's rate limiter. The server caches results for 60s so
+ * repeat calls within that window are instant.
  */
 async function fetchAllQuotes() {
   const symbols = STOCK_LIST.map(s => s.sym);
-  const BATCH   = 50;
-  const batches = [];
+  const BATCH   = 100;
+  const result  = {};
+
   for (let i = 0; i < symbols.length; i += BATCH) {
-    batches.push(symbols.slice(i, i + BATCH));
+    const batch = symbols.slice(i, i + BATCH);
+    const data  = await fetchQuoteBatch(batch);
+    Object.assign(result, data);
+    // Tiny yield to keep the UI thread responsive between batches
+    await new Promise(r => setTimeout(r, 30));
   }
-  const results = await Promise.all(batches.map(b => fetchQuoteBatch(b)));
-  return Object.assign({}, ...results);
+  return result;
+}
+
+/**
+ * Fetch prices only for the symbols currently visible in the market grid.
+ * Used on initial load so the first paint is fast — background refresh
+ * fills in the rest via fetchAllQuotes().
+ */
+async function fetchVisibleQuotes() {
+  const visible = Array.from(document.querySelectorAll('.stock-card'))
+    .map(el => el.dataset.sym)
+    .filter(Boolean);
+  if (!visible.length) return {};
+  return fetchQuoteBatch(visible);
 }
 
 /**

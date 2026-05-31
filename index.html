@@ -35,6 +35,8 @@
     <button class="nav-btn active" data-page="market"   onclick="showPage('market',   this)">Market</button>
     <button class="nav-btn"        data-page="portfolio" onclick="showPage('portfolio', this)">Portfolio</button>
     <button class="nav-btn"        data-page="history"  onclick="showPage('history',  this)">History</button>
+    <button class="nav-btn"        data-page="ups"      onclick="showPage('ups',      this)">&#x25B2; Ups</button>
+    <button class="nav-btn"        data-page="downs"    onclick="showPage('downs',    this)">&#x25BC; Downs</button>
   </nav>
 
   <!-- ── Pages ──────────────────────────────────────────────── -->
@@ -79,6 +81,28 @@
     </div>
   </section>
 
+  <!-- UPS -->
+  <section id="page-ups" class="page">
+    <div class="page-header">
+      <h1 class="page-title" style="color:var(--green)">&#x25B2; Top Gainers</h1>
+    </div>
+    <div class="movers-controls" id="upsControls"></div>
+    <div class="movers-list" id="upsList">
+      <div class="empty-state">Select a timeframe to load gainers.</div>
+    </div>
+  </section>
+
+  <!-- DOWNS -->
+  <section id="page-downs" class="page">
+    <div class="page-header">
+      <h1 class="page-title" style="color:var(--red)">&#x25BC; Top Losers</h1>
+    </div>
+    <div class="movers-controls" id="downsControls"></div>
+    <div class="movers-list" id="downsList">
+      <div class="empty-state">Select a timeframe to load losers.</div>
+    </div>
+  </section>
+
   <!-- ── Stock detail modal ──────────────────────────────────── -->
   <div class="modal-overlay" id="stockModal" onclick="handleModalClick(event)">
     <div class="modal" id="modalContent"></div>
@@ -93,6 +117,7 @@
   <script src="js/ui.js"></script>
   <script src="js/chart.js"></script>
   <script src="js/modal.js"></script>
+  <script src="js/movers.js"></script>
   <script src="js/app.js"></script>
 
 </body>
