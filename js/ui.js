@@ -1,11 +1,8 @@
 /**
- * js/ui.js
- *
- * All DOM rendering: market grid, portfolio, history, ticker.
- * Separated from state so each piece is easy to extend.
+ * js/ui.js  —  All DOM rendering: market grid, portfolio, history, ticker.
  */
 
-// ── Page navigation ──────────────────────────────────────────
+// ── Page navigation ───────────────────────────────────────────
 
 function showPage(name, btnEl) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -13,34 +10,31 @@ function showPage(name, btnEl) {
   document.getElementById('page-' + name).classList.add('active');
   if (btnEl) btnEl.classList.add('active');
 
-  // Lazy render on tab switch
   if (name === 'portfolio') renderPortfolio();
   if (name === 'history')   renderHistory();
   if (name === 'ups')       onMoverPageShow('ups');
   if (name === 'downs')     onMoverPageShow('downs');
 }
 
-// ── Cash display ─────────────────────────────────────────────
+// ── Cash display ──────────────────────────────────────────────
 
 function updateCashDisplay() {
   document.getElementById('cashDisplay').textContent = fmt(state.cash);
 }
 
-// ── Ticker tape ──────────────────────────────────────────────
+// ── Ticker tape ───────────────────────────────────────────────
 
 function renderTicker() {
   const sample = STOCK_LIST.slice(0, 20);
   const items  = sample.map(s => {
     const d = liveData[s.sym];
-    if (!d) return `<span class="ticker-item"><span class="sym">${s.sym}</span>—</span>`;
+    if (!d || !d.price) return `<span class="ticker-item"><span class="sym">${s.sym}</span>—</span>`;
     const cls = d.change >= 0 ? 'up' : 'dn';
     return `<span class="ticker-item">
       <span class="sym">${s.sym}</span>
       <span class="${cls}">${fmt(d.price)} ${fmtPct(d.changePct)}</span>
     </span>`;
   }).join('');
-
-  // Duplicate so the loop is seamless
   document.getElementById('tickerInner').innerHTML = items + items;
 }
 
@@ -49,21 +43,22 @@ function renderTicker() {
 function renderMarket() {
   buildSectorFilters();
   buildSortBar();
-  document.getElementById('stockCount').textContent = STOCK_LIST.length + ' stocks';
+  document.getElementById('stockCount').textContent = STOCK_LIST.length.toLocaleString() + ' stocks';
   filterStocks();
 }
 
+// ── Sector filter ─────────────────────────────────────────────
+
 function buildSectorFilters() {
   const container = document.getElementById('sectorFilters');
-  if (container.children.length > 0) return; // already built
+  if (container.children.length > 0) return;
 
-  // Sort sectors alphabetically but keep 'All' first
   const sectors = ['All', ...new Set(STOCK_LIST.map(s => s.sector))].sort((a, b) =>
     a === 'All' ? -1 : b === 'All' ? 1 : a.localeCompare(b)
   );
 
   sectors.forEach(sec => {
-    const btn = document.createElement('button');
+    const btn       = document.createElement('button');
     btn.className   = 'filter-btn' + (sec === 'All' ? ' active' : '');
     btn.textContent = sec;
     btn.onclick     = () => {
@@ -76,30 +71,32 @@ function buildSectorFilters() {
   });
 }
 
+// ── Sort bar ──────────────────────────────────────────────────
+
 const SORT_OPTIONS = [
-  { value: 'default',  label: 'Default',         title: 'Market cap order (largest first)' },
-  { value: 'alpha',    label: 'A → Z',            title: 'Alphabetical by ticker' },
-  { value: 'price-hi', label: 'Price ↑',          title: 'Highest price first' },
-  { value: 'price-lo', label: 'Price ↓',          title: 'Lowest price first' },
-  { value: 'gain',     label: '▲ Top Gainers',    title: 'Biggest % gain today' },
-  { value: 'loss',     label: '▼ Top Losers',     title: 'Biggest % drop today' },
+  { value: 'default',  label: 'Default',      title: 'Largest companies first' },
+  { value: 'alpha',    label: 'A → Z',         title: 'Alphabetical by ticker' },
+  { value: 'price-hi', label: 'Price ↑',       title: 'Highest price first' },
+  { value: 'price-lo', label: 'Price ↓',       title: 'Lowest price first' },
+  { value: 'gain',     label: '▲ Gainers',     title: 'Biggest % gain today first' },
+  { value: 'loss',     label: '▼ Losers',      title: 'Biggest % drop today first' },
 ];
 
 function buildSortBar() {
   const bar = document.getElementById('sortBar');
-  if (bar.children.length > 0) return; // already built
+  if (bar.children.length > 0) return;
 
-  const label = document.createElement('span');
+  const label       = document.createElement('span');
   label.className   = 'sort-bar-label';
   label.textContent = 'Sort:';
   bar.appendChild(label);
 
   SORT_OPTIONS.forEach(opt => {
-    const btn = document.createElement('button');
-    btn.className   = 'sort-btn' + (opt.value === currentSort ? ' active' : '');
-    btn.textContent = opt.label;
-    btn.title       = opt.title;
-    btn.dataset.sort = opt.value;
+    const btn         = document.createElement('button');
+    btn.className     = 'sort-btn' + (opt.value === currentSort ? ' active' : '');
+    btn.textContent   = opt.label;
+    btn.title         = opt.title;
+    btn.dataset.sort  = opt.value;
     btn.onclick = () => {
       currentSort = opt.value;
       document.querySelectorAll('#sortBar .sort-btn').forEach(b => b.classList.remove('active'));
@@ -116,81 +113,67 @@ function applySortToList(list) {
       return [...list].sort((a, b) => a.sym.localeCompare(b.sym));
 
     case 'price-hi':
-      return [...list].sort((a, b) => {
-        const pa = liveData[a.sym]?.price ?? -1;
-        const pb = liveData[b.sym]?.price ?? -1;
-        return pb - pa;
-      });
+      return [...list].sort((a, b) => (liveData[b.sym]?.price ?? -1) - (liveData[a.sym]?.price ?? -1));
 
     case 'price-lo':
       return [...list].sort((a, b) => {
-        const pa = liveData[a.sym]?.price ?? Infinity;
-        const pb = liveData[b.sym]?.price ?? Infinity;
-        // Push stocks with no price data to the bottom
-        if (pa === Infinity && pb === Infinity) return 0;
-        if (pa === Infinity) return 1;
-        if (pb === Infinity) return -1;
+        const pa = liveData[a.sym]?.price;
+        const pb = liveData[b.sym]?.price;
+        if (!pa && !pb) return 0;
+        if (!pa) return 1;
+        if (!pb) return -1;
         return pa - pb;
       });
 
     case 'gain':
-      return [...list].sort((a, b) => {
-        const ca = liveData[a.sym]?.changePct ?? -Infinity;
-        const cb = liveData[b.sym]?.changePct ?? -Infinity;
-        return cb - ca;   // highest gain first
-      });
+      return [...list].sort((a, b) =>
+        (liveData[b.sym]?.changePct ?? -Infinity) - (liveData[a.sym]?.changePct ?? -Infinity)
+      );
 
     case 'loss':
-      return [...list].sort((a, b) => {
-        const ca = liveData[a.sym]?.changePct ?? Infinity;
-        const cb = liveData[b.sym]?.changePct ?? Infinity;
-        return ca - cb;   // biggest drop first
-      });
+      return [...list].sort((a, b) =>
+        (liveData[a.sym]?.changePct ?? Infinity) - (liveData[b.sym]?.changePct ?? Infinity)
+      );
 
-    default: // 'default' — preserve STOCK_LIST order (market cap desc from server)
-      return list;
+    default:
+      return list;  // preserve server order (market cap desc)
   }
 }
 
+// ── Main filter + render ──────────────────────────────────────
+
 function filterStocks() {
-  const q    = document.getElementById('searchInput').value.toLowerCase();
-  let   list = STOCK_LIST;
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  let list = STOCK_LIST;
 
-  // 1. Sector filter
   if (currentSector !== 'All') list = list.filter(s => s.sector === currentSector);
-
-  // 2. Search filter
-  if (q) list = list.filter(s =>
+  if (q)                       list = list.filter(s =>
     s.sym.toLowerCase().includes(q) || s.name.toLowerCase().includes(q)
   );
 
-  // 3. Sort
   list = applySortToList(list);
 
-  // 4. Update count badge
-  document.getElementById('stockCount').textContent =
-    list.length === STOCK_LIST.length
-      ? `${STOCK_LIST.length.toLocaleString()} stocks`
-      : `${list.length.toLocaleString()} of ${STOCK_LIST.length.toLocaleString()}`;
+  const countEl = document.getElementById('stockCount');
+  countEl.textContent = list.length === STOCK_LIST.length
+    ? STOCK_LIST.length.toLocaleString() + ' stocks'
+    : list.length.toLocaleString() + ' of ' + STOCK_LIST.length.toLocaleString();
 
   const grid = document.getElementById('stockGrid');
-
   if (!list.length) {
-    grid.innerHTML = '<div class="empty-state">No stocks match that search.</div>';
+    grid.innerHTML = '<div class="empty-state">No stocks match.</div>';
     return;
   }
 
   grid.innerHTML = list.map(s => {
-    const d   = liveData[s.sym];
-    const cls = d && d.change >= 0 ? 'up' : 'dn';
-    // Flag stocks with no price data so the card looks neutral
+    const d        = liveData[s.sym];
     const hasPrice = d && d.price > 0;
+    const cls      = hasPrice ? (d.change >= 0 ? 'up' : 'dn') : '';
     return `
       <div class="stock-card" data-sym="${s.sym}" onclick="openModal('${s.sym}')">
         <div class="sym">${s.sym}</div>
         <div class="name">${s.name}</div>
-        <div class="price ${hasPrice ? cls : ''}">${hasPrice ? fmt(d.price) : '—'}</div>
-        <div class="chg  ${hasPrice ? cls : ''}">${hasPrice ? fmtPct(d.changePct) : ''}</div>
+        <div class="price ${cls}">${hasPrice ? fmt(d.price) : '—'}</div>
+        <div class="chg  ${cls}">${hasPrice ? fmtPct(d.changePct) : ''}</div>
         <canvas class="mini-spark" id="spark-${s.sym}" width="160" height="28"></canvas>
       </div>`;
   }).join('');
@@ -198,16 +181,13 @@ function filterStocks() {
   list.forEach(s => drawSparkline(s.sym));
 }
 
-/**
- * Draw a tiny trend sparkline on a canvas element.
- * Uses a randomly-generated shape biased by the day's direction —
- * replace with real intraday data if you want precision here.
- */
+// ── Sparkline ─────────────────────────────────────────────────
+
 function drawSparkline(sym) {
   const canvas = document.getElementById('spark-' + sym);
   if (!canvas) return;
   const d = liveData[sym];
-  if (!d) return;
+  if (!d || !d.price) return;
 
   const ctx   = canvas.getContext('2d');
   const w     = canvas.width;
@@ -216,10 +196,9 @@ function drawSparkline(sym) {
 
   ctx.clearRect(0, 0, w, h);
 
-  const pts   = 14;
+  const pts = 14;
   const points = [];
-  let   y      = h / 2;
-
+  let y = h / 2;
   for (let i = 0; i < pts; i++) {
     y += (Math.random() - 0.45) * trend * 2.2;
     y  = Math.max(2, Math.min(h - 2, y));
@@ -229,7 +208,6 @@ function drawSparkline(sym) {
   ctx.beginPath();
   ctx.moveTo(points[0].x, points[0].y);
   for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
-
   ctx.strokeStyle = trend >= 0 ? '#00d17a' : '#ff4d6a';
   ctx.lineWidth   = 1.5;
   ctx.stroke();
@@ -239,10 +217,7 @@ function drawSparkline(sym) {
 
 function renderPortfolio() {
   const entries = Object.entries(state.holdings);
-
-  // ── Summary stats ──
-  let stockValue = 0;
-  let costBasis  = 0;
+  let stockValue = 0, costBasis = 0;
 
   entries.forEach(([sym, h]) => {
     const price = liveData[sym]?.price ?? h.avgCost;
@@ -271,23 +246,18 @@ function renderPortfolio() {
       <div class="stat-sub ${gl >= 0 ? 'up' : 'dn'}">${fmtPct(glPct)}</div>
     </div>`;
 
-  // ── Holdings list ──
   const container = document.getElementById('holdingsList');
-
   if (!entries.length) {
-    container.innerHTML = `
-      <h3>Holdings</h3>
-      <div class="empty-state">No positions yet — go buy something in Market!</div>`;
+    container.innerHTML = '<h3>Holdings</h3><div class="empty-state">No positions yet — go buy something in Market!</div>';
     return;
   }
 
   const rows = entries.map(([sym, h]) => {
-    const price  = liveData[sym]?.price ?? h.avgCost;
-    const val    = price * h.qty;
-    const gl     = (price - h.avgCost) * h.qty;
-    const glPct  = ((price - h.avgCost) / h.avgCost) * 100;
-    const name   = stockName(sym);
-
+    const price = liveData[sym]?.price ?? h.avgCost;
+    const val   = price * h.qty;
+    const gl    = (price - h.avgCost) * h.qty;
+    const glPct = ((price - h.avgCost) / h.avgCost) * 100;
+    const name  = stockName(sym);
     return `
       <div class="holding-row" onclick="openModal('${sym}')">
         <div class="h-sym">${sym}</div>
@@ -308,9 +278,7 @@ function renderHistory() {
   const container = document.getElementById('txList');
 
   if (!state.transactions.length) {
-    container.innerHTML = `
-      <h3>All Transactions</h3>
-      <div class="empty-state">No trades yet.</div>`;
+    container.innerHTML = '<h3>All Transactions</h3><div class="empty-state">No trades yet.</div>';
     return;
   }
 
@@ -336,7 +304,6 @@ function renderHistory() {
 // ── Toast ─────────────────────────────────────────────────────
 
 let _toastTimer = null;
-
 function showToast(msg) {
   const el = document.getElementById('toast');
   el.textContent = msg;

@@ -628,3 +628,30 @@ body {
 /* Gain/Loss sort buttons get colour tints */
 .sort-btn[data-sort="gain"].active  { background: var(--green-bg); color: var(--green); border-color: rgba(0,209,122,0.3); }
 .sort-btn[data-sort="loss"].active  { background: var(--red-bg);   color: var(--red);   border-color: rgba(255,77,106,0.3); }
+
+/* ── Movers controls (top row + period row) ──────────────────────────────────── */
+
+.movers-top-row {
+  display:       flex;
+  align-items:   center;
+  gap:           10px;
+  margin-bottom: 10px;
+  flex-wrap:     wrap;
+}
+
+.mover-period-btn {
+  padding:       5px 14px;
+  border-radius: 6px;
+  border:        1px solid var(--border);
+  background:    none;
+  color:         var(--text2);
+  cursor:        pointer;
+  font-size:     12px;
+  font-family:   var(--font-sans);
+  font-weight:   500;
+  transition:    all 0.12s;
+  white-space:   nowrap;
+}
+.mover-period-btn:hover        { background: var(--surface3); color: var(--text); }
+.mover-period-btn--up.active   { background: var(--green-bg); color: var(--green); border-color: rgba(0,209,122,0.35); font-weight: 600; }
+.mover-period-btn--dn.active   { background: var(--red-bg);   color: var(--red);   border-color: rgba(255,77,106,0.35); font-weight: 600; }
